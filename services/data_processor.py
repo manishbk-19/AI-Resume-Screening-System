@@ -137,7 +137,7 @@ if __name__ == "__main__":
     print("Must-have skill match:",
           str(result["skill_match_percentage"]) + "%")
 
-    
+
     # Test with sample skills that partially match a job.
     sample_resume_skills = ["Python", "Git", "Docker"]
 
