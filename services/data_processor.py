@@ -73,33 +73,119 @@ def calculate_skill_match(
     }
 
     
+
+def calculate_seniority_fit(candidate_seniority, job_seniority):
+    """
+    Compare candidate seniority with the job's seniority.
+
+    Same level: 100
+    One level apart: 50
+    Two levels apart: 0
+    """
+    seniority_levels = {
+        "junior": 0,
+        "mid": 1,
+        "senior": 2
+    }
+
+    candidate_level = seniority_levels.get(
+        str(candidate_seniority).strip().lower()
+    )
+    job_level = seniority_levels.get(
+        str(job_seniority).strip().lower()
+    )
+
+    # Unknown seniority should not receive an invented score.
+    if candidate_level is None or job_level is None:
+        return None
+
+    difference = abs(candidate_level - job_level)
+
+    if difference == 0:
+        return 100.0
+    elif difference == 1:
+        return 50.0
+    else:
+        return 0.0
+
+
+
 def rank_candidates(resumes, job, top_n=10):
     """
-    Rank resumes for one job by must-have skill match.
+    Rank candidates using skill match, role relevance,
+    and seniority alignment.
     """
-
     results = []
 
     for _, resume in resumes.iterrows():
+
+        # 1. Calculate must-have skill match.
         match = calculate_skill_match(
             resume["skills"],
             job["must_have_skills"],
             job["nice_to_have_skills"]
         )
 
+        skill_score = match["skill_match_percentage"]
+
+        # 2. Calculate role relevance.
+        candidate_role = normalize_skill(resume["role"])
+        job_title = normalize_skill(job["job_title"])
+
+        role_score = (
+            100.0 if candidate_role == job_title else 0.0
+        )
+
+        # 3. Compare candidate and job seniority.
+        seniority_score = calculate_seniority_fit(
+            resume["seniority"],
+            job["seniority"]
+        )
+
+        # 4. Calculate the overall score.
+        if seniority_score is None:
+            overall_score = (
+                skill_score * 0.60
+                + role_score * 0.25
+            ) / 0.85
+        else:
+            overall_score = (
+                skill_score * 0.60
+                + role_score * 0.25
+                + seniority_score * 0.15
+            )
+
+        # 5. Store this candidate's results.
         results.append({
             "resume_id": resume["resume_id"],
             "role": resume["role"],
+            "seniority": resume["seniority"],
             "years_experience": resume["years_experience"],
             "matched_skills": match["matched_must_have"],
             "missing_skills": match["missing_must_have"],
-            "score": match["skill_match_percentage"]
+            "skill_score": round(skill_score, 2),
+            "role_score": round(role_score, 2),
+            "seniority_score": (
+                round(seniority_score, 2)
+                if seniority_score is not None
+                else None
+            ),
+            "score": round(overall_score, 2)
         })
 
-    # Highest skill-match score first.
-    results.sort(key=lambda candidate: candidate["score"], reverse=True)
+    # 6. Sort all candidates from highest to lowest score.
+    results.sort(
+        key=lambda candidate: (
+            candidate["score"],
+            candidate["skill_score"],
+            candidate["role_score"]
+        ),
+        reverse=True
+    )
 
     return results[:top_n]
+
+
 
 if __name__ == "__main__":
     import pandas as pd
@@ -108,85 +194,37 @@ if __name__ == "__main__":
     resumes = pd.read_csv("data/resumes.csv")
     jobs = pd.read_csv("data/jobs.csv")
 
-    # Convert skill fields from strings into Python lists
+    # Convert skill fields from text into Python lists
     resumes["skills"] = resumes["skills"].apply(parse_list_field)
+    jobs["must_have_skills"] = jobs["must_have_skills"].apply(parse_list_field)
+    jobs["nice_to_have_skills"] = jobs["nice_to_have_skills"].apply(parse_list_field)
 
-    jobs["must_have_skills"] = jobs["must_have_skills"].apply(
-        parse_list_field
+    # Select the first job and rank candidates
+    job = jobs.iloc[0]
+    ranked_candidates = rank_candidates(
+        resumes, job, top_n=10
     )
 
-    jobs["nice_to_have_skills"] = jobs["nice_to_have_skills"].apply(
-        parse_list_field
-    )
+    print("Total resumes loaded:", len(resumes))
+    print("Candidates returned:", len(ranked_candidates))
+
 
     # Display the results
-    print("Total resumes:", len(resumes))
-    print("Total jobs:", len(jobs))
-
-    print("\nFirst resume skills:")
-    print(resumes.loc[0, "skills"])
-
-    print("\nFirst job must-have skills:")
-    print(jobs.loc[0, "must_have_skills"])
-
-    print("\nFirst job nice-to-have skills:")
-    print(jobs.loc[0, "nice_to_have_skills"])
-
-    print("\nData types after processing:")
-    print("Resume skills:", type(resumes.loc[0, "skills"]))
-    print("Job skills:", type(jobs.loc[0, "must_have_skills"]))
-
-    # Compare the first resume with the first job.
-    resume = resumes.loc[0]
-    job = jobs.loc[0]
-
-    result = calculate_skill_match(
-        resume["skills"],
-        job["must_have_skills"],
-        job["nice_to_have_skills"]
-    )
-
-    print("\n==============================")
-    print("SKILL MATCHING RESULT")
-    print("==============================")
-
-    print("Candidate:", resume["resume_id"])
-    print("Job:", job["job_id"])
-
-    print("Matched must-have skills:",
-          result["matched_must_have"])
-
-    print("Missing must-have skills:",
-          result["missing_must_have"])
-
-    print("Matched nice-to-have skills:",
-          result["matched_nice_to_have"])
-
-    print("Must-have skill match:",
-          str(result["skill_match_percentage"]) + "%")
-
-
-    # Select the first job and rank candidates against it.
-    job = jobs.iloc[0]
-
-    ranked_candidates = rank_candidates(
-        resumes=resumes,
-        job=job,
-        top_n=10
-    )
-
     print("\n==============================")
     print("TOP 10 CANDIDATES")
     print("==============================")
-
     print("Job:", job["job_id"], "-", job["job_title"])
     print("Required skills:", job["must_have_skills"])
 
-    for position, candidate in enumerate(ranked_candidates, start=1):
-        print(f"\nRank: {position}")
+    for rank, candidate in enumerate(ranked_candidates, start=1):
+        print(f"\nRank: {rank}")
         print("Resume ID:", candidate["resume_id"])
         print("Current role:", candidate["role"])
+        print("Seniority:", candidate["seniority"])
         print("Experience:", candidate["years_experience"], "years")
         print("Matched skills:", candidate["matched_skills"])
         print("Missing skills:", candidate["missing_skills"])
-        print("Skill-match score:", candidate["score"], "%")
+        print("Skill score:", candidate["skill_score"], "%")
+        print("Role score:", candidate["role_score"], "%")
+        print("Seniority score:", candidate["seniority_score"])
+        print("Overall score:", candidate["score"], "%")
