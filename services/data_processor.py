@@ -110,16 +110,17 @@ def calculate_seniority_fit(candidate_seniority, job_seniority):
 
 
 
+
 def rank_candidates(resumes, job, top_n=10):
     """
-    Rank candidates using skill match, role relevance,
-    and seniority alignment.
+    Rank candidates using skills, role, seniority,
+    and industry relevance.
     """
     results = []
 
     for _, resume in resumes.iterrows():
 
-        # 1. Calculate must-have skill match.
+        # 1. Calculate required skill match.
         match = calculate_skill_match(
             resume["skills"],
             job["must_have_skills"],
@@ -128,7 +129,7 @@ def rank_candidates(resumes, job, top_n=10):
 
         skill_score = match["skill_match_percentage"]
 
-        # 2. Calculate role relevance.
+        # 2. Calculate role match.
         candidate_role = normalize_skill(resume["role"])
         job_title = normalize_skill(job["job_title"])
 
@@ -136,26 +137,41 @@ def rank_candidates(resumes, job, top_n=10):
             100.0 if candidate_role == job_title else 0.0
         )
 
-        # 3. Compare candidate and job seniority.
+        # 3. Calculate seniority match.
         seniority_score = calculate_seniority_fit(
             resume["seniority"],
             job["seniority"]
         )
 
-        # 4. Calculate the overall score.
-        if seniority_score is None:
-            overall_score = (
-                skill_score * 0.60
-                + role_score * 0.25
-            ) / 0.85
-        else:
-            overall_score = (
-                skill_score * 0.60
-                + role_score * 0.25
-                + seniority_score * 0.15
-            )
+        # 4. Calculate industry match.
+        candidate_industry = normalize_skill(resume["industry"])
+        job_industry = normalize_skill(job["industry"])
 
-        # 5. Store this candidate's results.
+        industry_score = (
+            100.0
+            if candidate_industry == job_industry
+            else 0.0
+        )
+
+        # 5. Calculate weighted overall score.
+        # Weights: Skills 50%, Role 20%,
+        # Seniority 15%, Industry 15%.
+
+        weighted_score = (
+            skill_score * 0.50
+            + role_score * 0.20
+            + industry_score * 0.15
+        )
+
+        total_weight = 0.85
+
+        if seniority_score is not None:
+            weighted_score += seniority_score * 0.15
+            total_weight = 1.00
+
+        overall_score = weighted_score / total_weight
+
+        # 6. Store candidate results.
         results.append({
             "resume_id": resume["resume_id"],
             "role": resume["role"],
@@ -170,21 +186,26 @@ def rank_candidates(resumes, job, top_n=10):
                 if seniority_score is not None
                 else None
             ),
+            "industry_score": round(industry_score, 2),
             "score": round(overall_score, 2)
         })
 
-    # 6. Sort all candidates from highest to lowest score.
+    # 7. Sort by overall score, then use
+    # individual factors to break ties.
     results.sort(
         key=lambda candidate: (
             candidate["score"],
+            candidate["industry_score"],
             candidate["skill_score"],
-            candidate["role_score"]
+            candidate["role_score"],
+            candidate["seniority_score"]
+            if candidate["seniority_score"] is not None
+            else -1
         ),
         reverse=True
     )
 
     return results[:top_n]
-
 
 
 if __name__ == "__main__":
