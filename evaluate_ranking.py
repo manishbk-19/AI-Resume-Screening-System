@@ -231,3 +231,238 @@ for rank, candidate in relevant_ranks[:10]:
     print("Overall score:", candidate["score"])
     print("Matched required skills:", candidate["matched_skills"])
     print("Missing required skills:", candidate["missing_skills"])
+
+
+
+print("\n===== SKILL-FOCUSED BASELINE =====")
+
+# Rank candidates primarily by required-skill match.
+skill_focused = sorted(
+    ranked_candidates,
+    key=lambda c: (
+        c["skill_score"],
+        c["role_score"],
+        c["seniority_score"]
+        if c["seniority_score"] is not None
+        else -1
+    ),
+    reverse=True
+)
+
+skill_top_10 = skill_focused[:10]
+
+skill_relevant_count = sum(
+    1 for c in skill_top_10
+    if c["resume_id"] in relevant_ids
+)
+
+print("Relevant candidates in top 10:", skill_relevant_count)
+print(
+    "Precision@10:",
+    round(skill_relevant_count / 10 * 100, 2),
+    "%"
+)
+
+print("\nTop 10 skill-focused candidates:")
+
+for rank, candidate in enumerate(skill_top_10, start=1):
+    print(
+        f"{rank}. {candidate['resume_id']} | "
+        f"Skills: {candidate['skill_score']}% | "
+        f"Role: {candidate['role_score']}% | "
+        f"Relevant: {candidate['resume_id'] in relevant_ids}"
+    )
+
+
+
+print("\n===== JOB REQUIREMENTS INVESTIGATION =====")
+
+print("\nJob title:", job["job_title"])
+print("\nJob description:")
+print(job["description"])
+
+print("\nResponsibilities:")
+print(job["responsibilities"])
+
+print("\nRequirements:")
+print(job["requirements"])
+
+
+
+print("\n===== RESUME CONTENT COMPARISON =====")
+
+print("\n--- Known Relevant Candidates ---")
+
+for resume_id in list(relevant_ids)[:5]:
+    row = resumes.loc[
+        resumes["resume_id"] == resume_id
+    ].iloc[0]
+
+    print(f"\nID: {row['resume_id']}")
+    print("Role:", row["role"])
+    print("Skills:", row["skills"])
+    print("Summary:", row["summary"])
+    print("Experience:", row["experience_bullets"])
+
+print("\n--- Current Top-Ranked Candidates ---")
+
+for candidate in ranked_candidates[:5]:
+    row = resumes.loc[
+        resumes["resume_id"] == candidate["resume_id"]
+    ].iloc[0]
+
+    print(f"\nID: {row['resume_id']}")
+    print("Role:", row["role"])
+    print("Skills:", row["skills"])
+    print("Summary:", row["summary"])
+    print("Experience:", row["experience_bullets"])
+
+
+
+print("\n===== MATCH DATASET STRUCTURE =====")
+
+print("\nMatches CSV columns:")
+print(matches.columns.tolist())
+
+print("\nFirst 5 rows of matches.csv:")
+print(matches.head().to_string(index=False))
+
+print("\nRelevant candidate count per job:")
+matches["relevant_count"] = matches[
+    "relevant_resume_ids"
+].apply(lambda value: len(parse_list_field(value)))
+
+print(matches["relevant_count"].describe())
+
+print("\nFirst 10 job IDs and relevant counts:")
+print(
+    matches[["job_id", "relevant_count"]]
+    .head(10)
+    .to_string(index=False)
+)
+
+
+
+
+
+print("\n===== RELEVANT VS NON-RELEVANT RESUMES =====")
+
+# Select the job we are evaluating
+job_id = "J_000000"
+
+job_row = jobs.loc[jobs["job_id"] == job_id].iloc[0]
+
+# Get the 30 ground-truth relevant resume IDs
+relevant_ids = set(
+    parse_list_field(
+        matches.loc[
+            matches["job_id"] == job_id,
+            "relevant_resume_ids"
+        ].iloc[0]
+    )
+)
+
+# Split resumes into relevant and non-relevant groups
+relevant_resumes = resumes[
+    resumes["resume_id"].isin(relevant_ids)
+]
+
+other_resumes = resumes[
+    ~resumes["resume_id"].isin(relevant_ids)
+]
+
+print("\nRelevant resumes:", len(relevant_resumes))
+print("Non-relevant resumes:", len(other_resumes))
+
+# Compare role distributions
+print("\n--- Roles of relevant candidates ---")
+print(relevant_resumes["role"].value_counts().head(10))
+
+print("\n--- Roles of non-relevant candidates ---")
+print(other_resumes["role"].value_counts().head(10))
+
+# Compare seniority distributions
+print("\n--- Seniority of relevant candidates ---")
+print(relevant_resumes["seniority"].value_counts())
+
+print("\n--- Seniority of non-relevant candidates ---")
+print(other_resumes["seniority"].value_counts())
+
+# Compare industries
+print("\n--- Industries of relevant candidates ---")
+print(relevant_resumes["industry"].value_counts().head(10))
+
+print("\n--- Industries of non-relevant candidates ---")
+print(other_resumes["industry"].value_counts().head(10))
+
+# Compare average years of experience
+print("\n--- Average years of experience ---")
+print(
+    "Relevant:",
+    relevant_resumes["years_experience"].mean()
+)
+print(
+    "Non-relevant:",
+    other_resumes["years_experience"].mean()
+)
+
+# Compare must-have skill coverage
+must_have = set(
+    parse_list_field(job_row["must_have_skills"])
+)
+
+def count_matched_must_have(skills):
+    candidate_skills = set(parse_list_field(skills))
+    return len(candidate_skills.intersection(must_have))
+
+relevant_skill_counts = relevant_resumes["skills"].apply(
+    count_matched_must_have
+)
+
+other_skill_counts = other_resumes["skills"].apply(
+    count_matched_must_have
+)
+
+print("\n--- Must-have skill coverage (out of 3) ---")
+print("Required skills:", must_have)
+print(
+    "Relevant candidates — average matched skills:",
+    round(relevant_skill_counts.mean(), 2)
+)
+print(
+    "Non-relevant candidates — average matched skills:",
+    round(other_skill_counts.mean(), 2)
+)
+
+print("\nRelevant candidates by number of matched skills:")
+print(relevant_skill_counts.value_counts().sort_index())
+
+print("\nNon-relevant candidates by number of matched skills:")
+print(other_skill_counts.value_counts().sort_index())
+
+
+
+
+
+print("\n===== DEBUG JOB SKILL PARSING =====")
+
+job_row = jobs.loc[jobs["job_id"] == "J_000000"].iloc[0]
+
+print("\nRaw must-have skills:")
+print(repr(job_row["must_have_skills"]))
+print("Data type:", type(job_row["must_have_skills"]))
+
+print("\nParsed must-have skills:")
+print(parse_list_field(job_row["must_have_skills"]))
+
+print("\nRaw nice-to-have skills:")
+print(repr(job_row["nice_to_have_skills"]))
+print("Data type:", type(job_row["nice_to_have_skills"]))
+
+print("\nParsed nice-to-have skills:")
+print(parse_list_field(job_row["nice_to_have_skills"]))
+
+print("\nRaw resume skills:")
+print(repr(resumes.iloc[0]["skills"]))
+print("Parsed resume skills:")
+print(parse_list_field(resumes.iloc[0]["skills"]))

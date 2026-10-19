@@ -1,24 +1,48 @@
-
 import re
+import ast
+import numpy as np
+
 
 
 def parse_list_field(value):
-    """
-    Convert a skills field stored as text into a Python list.
+    import ast
+    import re
 
-    Example:
-    "['Python' 'SQL' 'Excel']"
-    becomes:
-    ['Python', 'SQL', 'Excel']
-    """
+    if value is None:
+        return []
+
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
 
     if not isinstance(value, str) or not value.strip():
         return []
 
-    # Extract text enclosed in single quotes.
-    items = re.findall(r"'([^']*)'", value)
+    value = value.strip()
 
-    return [item.strip() for item in items if item.strip()]
+    # Parse a valid Python list first
+    try:
+        parsed = ast.literal_eval(value)
+        if isinstance(parsed, (list, tuple, set)):
+            return [str(item).strip() for item in parsed if str(item).strip()]
+    except (ValueError, SyntaxError):
+        pass
+
+    # Parse resume IDs
+    if "R_" in value:
+        return re.findall(r"R_\d{6}", value)
+
+    # Extract each quoted item separately
+    items = re.findall(r"""['"]([^'"]*)['"]""", value)
+
+    if items:
+        return [item.strip() for item in items if item.strip()]
+
+    # Fallback for comma-separated values
+    return [
+        item.strip().strip("'\"")
+        for item in value.strip("[]").split(",")
+        if item.strip()
+    ]
 
 
 def normalize_skill(skill):
